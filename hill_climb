@@ -1,0 +1,119 @@
+#!/usr/bin/pypy3
+
+from string import ascii_uppercase as au
+from random import randint
+from math import sqrt, log
+from collections import Counter
+import re
+
+
+def nwise(text):
+    return (text[x: x + 4] for x in range(len(text) - 4))
+
+
+def pair_normalised_common_ref(n):
+    sample = "".join(re.findall("[A-Z]+", open("1661-0.txt").read().upper()))
+    reference = Counter(nwise(sample)).most_common()
+    total_pairs = len(sample) - 1
+    normalised = dict([(pair, count / total_pairs) for (pair, count) in reference])
+
+    return normalised
+
+
+def rotate(arr, shift):
+    return arr[-shift:] + arr[:-shift]
+
+
+def decipher(shifts, perms):
+    plaintext = ""
+
+    for columns in COLUMNS:
+        sorted_columns = [x[1] for x in sorted(zip(perms, columns), key = lambda x: x[0])]
+        rotated_columns = [rotate(column, -shift) for shift, column in zip(shifts, sorted_columns)]
+        plaintext += "".join([item for x in zip(*rotated_columns) for item in x])
+
+    return plaintext
+
+
+quadgram_freqs = pair_normalised_common_ref(4)
+
+
+def fitness(text):
+    textcount = {key: count / (len(text) * 4) for key, count in Counter(nwise(text)).items()}
+    error = sum(log(quadgram_freqs[key]) * textcount[key] for key in quadgram_freqs if key in textcount)
+
+    return -error
+
+def hill_climb():
+    parent_shifts = [0] * KEY_LEN
+    parent_perms = [*range(KEY_LEN)]
+    best_fitness = fitness(ciphertext)
+    best_plaintext = ""
+    count = 0
+    cutoff = 2
+    n_iters = 0
+
+    while count < 1000:
+        child_shifts = parent_shifts[:]
+        child_perms = parent_perms[:]
+
+        choice = randint(0, 3)
+
+        if choice == 0:
+            child_shifts[randint(0, KEY_LEN - 1)] = randint(0, KEY_LEN - 1)
+        elif choice == 1:
+            idx = randint(0, KEY_LEN - 1)
+            jdx = randint(0, KEY_LEN - 1)
+
+            child_perms[idx], child_perms[jdx] = child_perms[jdx], child_perms[idx]
+        elif choice == 2:
+            n = randint(1, KEY_LEN)
+            child_shifts = rotate(child_shifts, n)
+            child_perms = rotate(child_perms, n)
+            child_shifts = [shift - 1 for shift in child_shifts]
+        elif choice == 3:
+            n = randint(1, BASE_BLOCK)
+            child_shifts = [(shift + n) % BASE_BLOCK for shift in child_shifts]
+
+
+        plaintext = decipher(child_shifts, child_perms)
+
+        new_fitness = fitness(plaintext)
+        margin = 0 if new_fitness > cutoff else sqrt(cutoff - new_fitness) / 10
+
+        if new_fitness > best_fitness or (new_fitness > best_fitness - margin and randint(1, 20) == 1):
+            if new_fitness > best_fitness:
+                best_plaintext = plaintext
+
+            parent_shifts = child_shifts[:]
+            parent_perms = child_perms[:]
+            best_fitness = new_fitness
+            # print(*re.findall("." * BASE_BLOCK * KEY_LEN, plaintext), sep = "\n")
+            # print()
+            print(f"\n{plaintext}\n{new_fitness} {parent_shifts} {parent_perms}")
+            count = 0
+
+        count += 1
+        n_iters += 1
+    
+    key = "".join(au[(26 - shift) % 26] for shift in parent_shifts)
+
+    return best_plaintext, key, n_iters
+
+
+ciphertext = open("ct.txt").read().replace(" ", "").replace("\n", "")
+KEY_LEN = 5
+BASE_BLOCK = 26
+BLOCKSIZE = KEY_LEN * BASE_BLOCK
+blocks = re.findall("." * BASE_BLOCK * KEY_LEN, ciphertext)
+COLUMNS = []
+
+for block in blocks:
+    rows = [block[i:i+KEY_LEN] for i in range(0, len(block), KEY_LEN)]
+    COLUMNS.append([x for x in zip(*rows)])
+
+pt, key, n_iters = hill_climb()
+print()
+print(*re.findall("." * BASE_BLOCK * KEY_LEN, pt), sep = "\n")
+print("Key:", key)
+print(f"Took {n_iters} iterations")
